@@ -1,0 +1,116 @@
+name: Build APK Toko Sembako
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git zip unzip \
+            autoconf automake libtool pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev \
+            libtinfo5 cmake libffi-dev libssl-dev \
+            libltdl-dev
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "setuptools<70" \
+            wheel \
+            "cython<3" \
+            buildozer==1.5.0
+
+      - name: Prepare project
+        run: |
+          set -e
+
+          echo "Mencari buildozer.spec..."
+
+          SPEC=$(find . -name buildozer.spec -type f | head -n 1 || true)
+
+          if [ -n "$SPEC" ]; then
+            echo "buildozer.spec ditemukan:"
+            echo "$SPEC"
+
+            PROJECT_DIR=$(dirname "$SPEC")
+
+          else
+            echo "buildozer.spec tidak ada langsung."
+
+            ZIP_FILE=$(find . -maxdepth 2 -type f -name "*.zip" | head -n 1 || true)
+
+            if [ -z "$ZIP_FILE" ]; then
+              echo "ZIP project juga tidak ditemukan!"
+              echo "Isi repository:"
+              find . -maxdepth 3 -type f | sort
+              exit 1
+            fi
+
+            echo "ZIP ditemukan:"
+            echo "$ZIP_FILE"
+
+            rm -rf project
+            mkdir -p project
+
+            unzip -q "$ZIP_FILE" -d project
+
+            SPEC=$(find project -name buildozer.spec -type f | head -n 1 || true)
+
+            if [ -z "$SPEC" ]; then
+              echo "buildozer.spec tidak ditemukan di dalam ZIP!"
+              echo "Isi ZIP:"
+              find project -maxdepth 5 -type f | sort
+              exit 1
+            fi
+
+            PROJECT_DIR=$(dirname "$SPEC")
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "================================"
+          echo "PROJECT:"
+          echo "$PROJECT_DIR"
+          echo "================================"
+
+          echo "Isi project:"
+          find "$PROJECT_DIR" -maxdepth 2 -type f | sort
+
+      - name: Build APK
+        run: |
+          cd "$PROJECT_DIR"
+          buildozer android debug
+
+      - name: Find APK
+        run: |
+          echo "Mencari APK..."
+          find . -type f -name "*.apk" -print
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: toko-sembako-apk
+          path: "**/bin/*.apk"
+          if-no-files-found: error
+          retention-days: 7
